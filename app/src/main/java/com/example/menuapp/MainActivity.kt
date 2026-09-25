@@ -2,7 +2,6 @@ package com.example.menuapp
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.widget.Toast
@@ -31,11 +30,11 @@ import androidx.compose.ui.unit.sp
 import com.google.accompanist.drawablepainter.rememberDrawablePainter
 import android.content.ComponentName
 
-// Datenmodell für die Apps
 data class AppEntry(
     val label: String,
     val packageName: String,
     val activityName: String?,
+    val mediaServiceName: String?,
     val icon: Drawable,
     val isMediaApp: Boolean = false
 )
@@ -77,7 +76,43 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun openMediaApp(app: AppEntry) {
+        val serviceName = app.mediaServiceName ?: return
+
+        val mediaComponent = ComponentName(
+            app.packageName,
+            serviceName
+        )
+
+        val intent = Intent("android.car.intent.action.MEDIA_TEMPLATE").apply {
+            component = ComponentName(
+                "com.android.car.media",
+                "com.android.car.media.MediaDispatcherActivity"
+            )
+
+            // AAOS Media Center
+            putExtra(
+                "android.car.intent.extra.MEDIA_COMPONENT",
+                mediaComponent
+            )
+
+            // Fallback für ältere Media-Center-Versionen
+            putExtra(
+                Intent.EXTRA_COMPONENT_NAME,
+                mediaComponent
+            )
+        }
+
+        startActivity(intent)
+    }
+
+
     private fun launchApp(app: AppEntry) {
+        if (app.isMediaApp) {
+            openMediaApp(app)
+            return
+        }
+
         val activityName = app.activityName
 
         if (activityName == null) {
@@ -104,6 +139,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+
 
 @Composable
 fun AppDrawerScreen(onAppClick: (AppEntry) -> Unit) {
@@ -134,12 +171,15 @@ fun AppDrawerScreen(onAppClick: (AppEntry) -> Unit) {
             pm.queryIntentServices(mediaServiceIntent, 0) +
                     pm.queryIntentServices(compatMediaServiceIntent, 0)
 
+
+
         val appEntries = launcherApps
             .map { resolveInfo ->
                 AppEntry(
                     label = resolveInfo.loadLabel(pm).toString(),
                     packageName = resolveInfo.activityInfo.packageName,
                     activityName = resolveInfo.activityInfo.name,
+                    mediaServiceName = null,
                     icon = resolveInfo.loadIcon(pm),
                     isMediaApp = false
                 )
@@ -152,13 +192,15 @@ fun AppDrawerScreen(onAppClick: (AppEntry) -> Unit) {
         mediaServices
             .filter { it.serviceInfo.packageName !in existingPackages }
             .forEach { resolveInfo ->
+                val serviceInfo = resolveInfo.serviceInfo
+                val applicationInfo = serviceInfo.applicationInfo
+
                 appEntries += AppEntry(
-                    label = resolveInfo.serviceInfo.applicationInfo
-                        .loadLabel(pm)
-                        .toString(),
-                    packageName = resolveInfo.serviceInfo.packageName,
+                    label = applicationInfo.loadLabel(pm).toString(),
+                    packageName = serviceInfo.packageName,
                     activityName = null,
-                    icon = resolveInfo.serviceInfo.applicationInfo.loadIcon(pm),
+                    mediaServiceName = serviceInfo.name,
+                    icon = applicationInfo.loadIcon(pm),
                     isMediaApp = true
                 )
             }

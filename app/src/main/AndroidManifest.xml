@@ -3,6 +3,8 @@
 
     <!-- ERFORDERLICH: Erlaubt dem PackageManager, installierte Apps abzufragen -->
     <queries>
+        <package android:name="com.android.car.media" />
+
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -19,6 +21,15 @@
 
         <intent>
             <action android:name="android.media.browse.MediaBrowserServiceCompat" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_MUSIC" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.MUSIC_PLAYER" />
         </intent>
     </queries>
 
