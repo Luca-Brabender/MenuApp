@@ -11,9 +11,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -27,8 +25,35 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.accompanist.drawablepainter.rememberDrawablePainter
 import android.content.ComponentName
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.rotary.onRotaryScrollEvent
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 
 data class AppEntry(
     val label: String,
@@ -48,13 +73,26 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF121212) // Dunkler Automotive-Hintergrund
+                    color = Color.Transparent
                 ) {
-                    AppDrawerScreen(
-                        onAppClick = { app ->
-                            launchApp(app)
-                        }
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Color.Black.copy(alpha = 0.55f)
+                            )
+                            .pointerInput(Unit) {
+                                detectTapGestures {
+                                    finishAndRemoveTask()
+                                }
+                            }
+                    ) {
+                        AppDrawerScreen(
+                            onAppClick = { app ->
+                                openMockApp(app)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -77,7 +115,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openMediaApp(app: AppEntry) {
-        val serviceName = app.mediaServiceName ?: return
+        val serviceName = app.mediaServiceName
+
+        if (serviceName == null) {
+            Toast.makeText(
+                this,
+                "${app.label} besitzt keinen gültigen Media-Service",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
 
         val mediaComponent = ComponentName(
             app.packageName,
@@ -90,20 +137,35 @@ class MainActivity : ComponentActivity() {
                 "com.android.car.media.MediaDispatcherActivity"
             )
 
-            // AAOS Media Center
             putExtra(
                 "android.car.intent.extra.MEDIA_COMPONENT",
                 mediaComponent
             )
 
-            // Fallback für ältere Media-Center-Versionen
-            putExtra(
-                Intent.EXTRA_COMPONENT_NAME,
-                mediaComponent
-            )
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
-        startActivity(intent)
+        val mediaActivity = intent.resolveActivity(packageManager)
+
+        if (mediaActivity == null) {
+            Toast.makeText(
+                this,
+                "Das Automotive-Media-Center ist nicht verfügbar",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        try {
+            startActivity(intent)
+            finishAndRemoveTask()
+        } catch (exception: ActivityNotFoundException) {
+            Toast.makeText(
+                this,
+                "${app.label} konnte nicht geöffnet werden",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
 
@@ -125,11 +187,20 @@ class MainActivity : ComponentActivity() {
         }
 
         val intent = Intent(Intent.ACTION_MAIN).apply {
-            component = ComponentName(app.packageName, activityName)
+            component = ComponentName(
+                app.packageName,
+                activityName
+            )
+
+            // Ziel-App in einem eigenen Task öffnen.
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
 
         try {
             startActivity(intent)
+
+            // Menü-Activity und deren alter Zustand werden entfernt.
+            finishAndRemoveTask()
         } catch (exception: ActivityNotFoundException) {
             Toast.makeText(
                 this,
@@ -138,122 +209,195 @@ class MainActivity : ComponentActivity() {
             ).show()
         }
     }
+
+    private fun openMockApp(app: MockApp) {
+        val intent = Intent(this, MockAppActivity::class.java).apply {
+            putExtra(
+                MockAppActivity.EXTRA_MOCK_APP_ID,
+                app.id
+            )
+        }
+
+        startActivity(intent)
+    }
+
 }
 
-
-
 @Composable
-fun AppDrawerScreen(onAppClick: (AppEntry) -> Unit) {
+fun AppDrawerScreen(
+    onAppClick: (MockApp) -> Unit
+) {
     val context = LocalContext.current
-    var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
-    // Lädt alle installierten Apps mit Launcher-Intent
-    LaunchedEffect(Unit) {
-        val pm = context.packageManager
-
-        val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-
-        val carLauncherIntent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory("android.intent.category.CAR_LAUNCHER")
-        }
-
-        val mediaServiceIntent = Intent("android.media.browse.MediaBrowserService")
-        val compatMediaServiceIntent =
-            Intent("android.media.browse.MediaBrowserServiceCompat")
-
-        val launcherApps =
-            pm.queryIntentActivities(launcherIntent, 0) +
-                    pm.queryIntentActivities(carLauncherIntent, 0)
-
-        val mediaServices =
-            pm.queryIntentServices(mediaServiceIntent, 0) +
-                    pm.queryIntentServices(compatMediaServiceIntent, 0)
-
-
-
-        val appEntries = launcherApps
-            .map { resolveInfo ->
-                AppEntry(
-                    label = resolveInfo.loadLabel(pm).toString(),
-                    packageName = resolveInfo.activityInfo.packageName,
-                    activityName = resolveInfo.activityInfo.name,
-                    mediaServiceName = null,
-                    icon = resolveInfo.loadIcon(pm),
-                    isMediaApp = false
-                )
-            }
-            .toMutableList()
-
-        val existingPackages = appEntries
-            .mapTo(mutableSetOf()) { it.packageName }
-
-        mediaServices
-            .filter { it.serviceInfo.packageName !in existingPackages }
-            .forEach { resolveInfo ->
-                val serviceInfo = resolveInfo.serviceInfo
-                val applicationInfo = serviceInfo.applicationInfo
-
-                appEntries += AppEntry(
-                    label = applicationInfo.loadLabel(pm).toString(),
-                    packageName = serviceInfo.packageName,
-                    activityName = null,
-                    mediaServiceName = serviceInfo.name,
-                    icon = applicationInfo.loadIcon(pm),
-                    isMediaApp = true
-                )
-            }
-
-        apps = appEntries
-            .distinctBy { it.packageName }
-            .sortedBy { it.label.lowercase() }
+    var openedMockApp by remember {
+        mutableStateOf<MockApp?>(null)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp)
-    ) {
-        Text(
-            text = "Anwendungen",
-            fontSize = 28.sp,
-            color = Color.White,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
+    val apps = mockApps
 
-        // Raster für Touch-Bedienung (auf dem Pi 4 Display gut nutzbar)
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 120.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+    val itemFocusRequesters = remember(apps) {
+        apps.map { FocusRequester() }
+    }
+
+    LaunchedEffect(apps) {
+        withFrameNanos { }
+
+        itemFocusRequesters
+            .firstOrNull()
+            ?.requestFocus()
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize()
         ) {
-            items(apps) { app ->
-                AppItem(
-                    app = app,
-                    onClick = { onAppClick(app) }
-                )
+            Text(
+                text = "Anwendungen",
+                fontSize = 28.sp,
+                color = Color.White,
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .padding(top = 24.dp)
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            LazyRow(
+                state = listState,
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(
+                    horizontal = 48.dp,
+                    vertical = 32.dp
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusGroup()
+            ) {
+                items(
+                    items = apps,
+                    key = { app -> app.id }
+                ) { app ->
+                    val currentIndex = apps.indexOf(app)
+                    val itemFocusRequester =
+                        itemFocusRequesters.getOrNull(currentIndex)
+
+                    if (itemFocusRequester != null) {
+                        AppItem(
+                            app = app,
+                            focusRequester = itemFocusRequester,
+                            onRotaryMove = { direction ->
+                                val nextIndex = currentIndex + direction
+
+                                if (nextIndex in apps.indices) {
+                                    coroutineScope.launch {
+                                        listState.animateScrollToItem(nextIndex)
+                                    }
+
+                                    itemFocusRequesters
+                                        .getOrNull(nextIndex)
+                                        ?.requestFocus()
+                                }
+                            },
+                            onClick = {
+                                onAppClick(app)
+                            }
+                        )
+                    }
+                }
             }
+        }
+
+        openedMockApp?.let { app ->
+            MockAppOverlay(
+                app = app,
+                onClose = {
+                    openedMockApp = null
+                }
+            )
         }
     }
 }
 
 @Composable
-fun AppItem(app: AppEntry, onClick: () -> Unit) {
+fun AppItem(
+    app: MockApp,
+    focusRequester: FocusRequester,
+    onRotaryMove: (Int) -> Unit,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.25f else 1.0f,
+        label = "mock_app_item_scale"
+    )
+
+    val shape = RoundedCornerShape(16.dp)
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .background(Color(0xFF222222), shape = RoundedCornerShape(12.dp))
-            .clickable { onClick() }
+            .width(132.dp)
+            .scale(scale)
+            .focusRequester(focusRequester)
+            .onFocusChanged { focusState ->
+                isFocused = focusState.isFocused
+            }
+            .onRotaryScrollEvent { event ->
+                val direction =
+                    if (event.verticalScrollPixels > 0) 1 else -1
+
+                onRotaryMove(direction)
+                true
+            }
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (
+                    event.type == KeyEventType.KeyDown &&
+                    (
+                            event.key == Key.Enter ||
+                                    event.key == Key.DirectionCenter
+                            )
+                ) {
+                    onClick()
+                    true
+                } else {
+                    false
+                }
+            }
+            .background(
+                color = if (isFocused) {
+                    Color(0xFF333333)
+                } else {
+                    Color(0xFF222222)
+                },
+                shape = shape
+            )
+            .border(
+                border = if (isFocused) {
+                    BorderStroke(3.dp, Color(0xFF64B5F6))
+                } else {
+                    BorderStroke(0.dp, Color.Transparent)
+                },
+                shape = shape
+            )
+            .clickable {
+                onClick()
+            }
             .padding(16.dp)
-            .fillMaxWidth()
     ) {
         Image(
-            painter = rememberDrawablePainter(drawable = app.icon),
+            painter = painterResource(id = app.iconResId),
             contentDescription = app.label,
-            modifier = Modifier.size(64.dp)
+            modifier = Modifier.size(72.dp)
         )
+
         Spacer(modifier = Modifier.height(8.dp))
+
         Text(
             text = app.label,
             color = Color.White,
@@ -262,5 +406,70 @@ fun AppItem(app: AppEntry, onClick: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+@Composable
+fun MockAppOverlay(
+    app: MockApp,
+    onClose: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.78f))
+            .clickable {
+                onClose()
+            }
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp)
+                .background(
+                    color = Color(0xFF202124),
+                    shape = RoundedCornerShape(20.dp)
+                )
+                .clickable {
+                    // Touch innerhalb der Mock-App bleibt innerhalb
+                    // des Mock-Fensters.
+                }
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Image(
+                painter = painterResource(id = app.iconResId),
+                contentDescription = app.label,
+                modifier = Modifier.size(96.dp)
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = app.label,
+                color = Color.White,
+                fontSize = 26.sp,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = app.description,
+                color = Color.LightGray,
+                fontSize = 16.sp,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Mock-App für die Nutzerstudie",
+                color = Color.Gray,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
