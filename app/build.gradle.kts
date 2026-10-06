@@ -47,6 +47,9 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.2.0")
     implementation("androidx.compose.foundation:foundation:1.6.2")
     implementation("androidx.activity:activity-compose:1.8.2")
+    implementation("com.android.car.ui:car-ui-lib:2.6.0")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
+
 
     // Für App-Icons
     implementation("com.google.accompanist:accompanist-drawablepainter:0.34.0")

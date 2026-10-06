@@ -1,7 +1,7 @@
 package com.example.menuapp
 
 import androidx.annotation.DrawableRes
-import androidx.compose.ui.graphics.vector.ImageVector
+
 
 data class MockApp(
     val id: String,

@@ -31,7 +31,6 @@ class MockAppActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val mockAppId = intent.getStringExtra(EXTRA_MOCK_APP_ID)
-
         val app = mockApps.firstOrNull { it.id == mockAppId }
 
         if (app == null) {
@@ -43,9 +42,7 @@ class MockAppActivity : ComponentActivity() {
             MaterialTheme {
                 MockAppScreen(
                     app = app,
-                    onClose = {
-                        finish()
-                    }
+                    onClose = ::finish
                 )
             }
         }
@@ -82,7 +79,7 @@ private fun MockAppScreen(
                     shape = RoundedCornerShape(20.dp)
                 )
                 .clickable {
-                    // Touch innerhalb der Fake-App bleibt dort.
+                    // Touches innerhalb der Fake-App schließen den Screen nicht.
                 }
                 .padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
