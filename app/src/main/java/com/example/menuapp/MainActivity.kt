@@ -94,28 +94,53 @@ class MainActivity : ComponentActivity() {
                 1f
             )
 
-            isClickable = true
-            setOnClickListener {
-                finishAndRemoveTask()
+            isFocusable = false
+            isFocusableInTouchMode = false
+            setOnTouchListener { _, event ->
+                if (!event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
+                    return@setOnTouchListener false
+                }
+
+                if (event.action == MotionEvent.ACTION_UP) {
+                    finishAndRemoveTask()
+                }
+                true
+            }
+        }
+
+        val bottomSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+
+            isFocusable = false
+            isFocusableInTouchMode = false
+            setOnTouchListener { _, event ->
+                if (!event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
+                    return@setOnTouchListener false
+                }
+
+                if (event.action == MotionEvent.ACTION_UP) {
+                    finishAndRemoveTask()
+                }
+                true
             }
         }
 
         content.addView(topSpacer)
         content.addView(recyclerView)
+        content.addView(bottomSpacer)
 
         content.setBackgroundColor(
             AndroidColor.argb(
-                150,
+                190,
                 0,
                 0,
                 0
             )
         )
-
-        topSpacer.isClickable = true
-        topSpacer.setOnClickListener {
-            finishAndRemoveTask()
-        }
 
         focusArea.addView(content)
 
@@ -133,6 +158,11 @@ class MainActivity : ComponentActivity() {
         if (::appAdapter.isInitialized) {
             refreshApps()
         }
+    }
+
+    override fun onPause() {
+        appAdapter.cancelHoverSelection()
+        super.onPause()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -163,7 +193,6 @@ class MainActivity : ComponentActivity() {
         val focusedPosition = focusedView
             ?.let { recyclerView.getChildAdapterPosition(it) }
             ?.takeUnless { it == RecyclerView.NO_POSITION }
-            ?: 0
 
         val offset = when (direction) {
             DIRECTION_NEXT -> 1
@@ -171,8 +200,9 @@ class MainActivity : ComponentActivity() {
             else -> return
         }
 
-        val targetPosition = (focusedPosition + offset)
-            .coerceIn(0, adapter.itemCount - 1)
+        val targetPosition = focusedPosition
+            ?.let { (it + offset).coerceIn(0, adapter.itemCount - 1) }
+            ?: 0
 
         recyclerView.smoothScrollToPosition(targetPosition)
 
@@ -188,12 +218,6 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshApps() {
         appAdapter.submitApps(loadLauncherApps())
-        menuRecyclerView?.post {
-            menuRecyclerView
-                ?.findViewHolderForAdapterPosition(0)
-                ?.itemView
-                ?.requestFocus()
-        }
     }
 
     private fun openApp(app: LauncherApp) {
@@ -231,10 +255,16 @@ private class LauncherAppAdapter(
 ) : RecyclerView.Adapter<LauncherAppAdapter.ViewHolder>() {
 
     private var apps: List<LauncherApp> = emptyList()
+    private val viewHolders = mutableSetOf<ViewHolder>()
 
     fun submitApps(apps: List<LauncherApp>) {
+        cancelHoverSelection()
         this.apps = apps
         notifyDataSetChanged()
+    }
+
+    fun cancelHoverSelection() {
+        viewHolders.forEach(ViewHolder::cancelHoverSelection)
     }
 
     override fun onCreateViewHolder(
@@ -262,7 +292,7 @@ private class LauncherAppAdapter(
             }
         }
 
-        return ViewHolder(card)
+        return ViewHolder(card).also(viewHolders::add)
     }
 
     override fun onBindViewHolder(
@@ -279,8 +309,11 @@ private class LauncherAppAdapter(
     inner class ViewHolder(
         private val card: LinearLayout
     ) : RecyclerView.ViewHolder(card) {
+        private var boundApp: LauncherApp? = null
 
         fun bind(app: LauncherApp) {
+            boundApp = app
+            cancelHoverSelection()
             card.removeAllViews()
             card.background = null
             card.scaleX = 1f
@@ -318,6 +351,7 @@ private class LauncherAppAdapter(
             card.addView(label)
 
             card.setOnClickListener {
+                cancelHoverSelection()
                 onClick(app)
             }
 
@@ -335,11 +369,31 @@ private class LauncherAppAdapter(
                 if (hasFocus) {
                     card.parent
                         ?.requestChildFocus(card, card)
+                    cancelHoverSelection()
+                    card.postDelayed(hoverLaunchRunnable, HOVER_SELECT_DELAY_MS)
+                } else {
+                    cancelHoverSelection()
                 }
+            }
+
+            if (card.hasFocus()) {
+                card.postDelayed(hoverLaunchRunnable, HOVER_SELECT_DELAY_MS)
+            }
+        }
+
+        fun cancelHoverSelection() {
+            card.removeCallbacks(hoverLaunchRunnable)
+        }
+
+        private val hoverLaunchRunnable = Runnable {
+            if (card.hasFocus() && bindingAdapterPosition != RecyclerView.NO_POSITION) {
+                boundApp?.let(onClick)
             }
         }
     }
 }
+
+private const val HOVER_SELECT_DELAY_MS = 1_500L
 
 private fun android.content.Context.dp(value: Int): Int {
     return (value * resources.displayMetrics.density).roundToInt()
