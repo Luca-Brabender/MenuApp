@@ -52,11 +52,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".MockAppActivity"
-            android:exported="false"
-            android:launchMode="singleTop" />
-
     </application>
 
 </manifest>

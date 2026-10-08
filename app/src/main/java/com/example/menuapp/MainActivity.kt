@@ -2,9 +2,7 @@ package com.example.menuapp
 
 import android.content.Intent
 import android.graphics.Color as AndroidColor
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.util.Log
 import android.view.Gravity
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -14,7 +12,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -23,6 +20,9 @@ import com.android.car.ui.FocusParkingView
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
+
+    private var menuRecyclerView: RecyclerView? = null
+    private lateinit var appAdapter: LauncherAppAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,6 +54,10 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        appAdapter = LauncherAppAdapter(
+            onClick = ::openApp
+        )
+
         val recyclerView = RecyclerView(this).apply {
             layoutManager = LinearLayoutManager(
                 this@MainActivity,
@@ -61,10 +65,7 @@ class MainActivity : ComponentActivity() {
                 false
             )
 
-            adapter = MockAppAdapter(
-                apps = mockApps,
-                onClick = ::openMockApp
-            )
+            adapter = appAdapter
 
             isFocusable = true
             isFocusableInTouchMode = true
@@ -83,6 +84,8 @@ class MainActivity : ComponentActivity() {
                 dp(240)
             )
         }
+
+        menuRecyclerView = recyclerView
 
         val topSpacer = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -121,25 +124,15 @@ class MainActivity : ComponentActivity() {
 
 
         setContentView(root)
-
-        recyclerView.post {
-            val firstViewHolder =
-                recyclerView.findViewHolderForAdapterPosition(0)
-
-            firstViewHolder?.itemView?.requestFocus()
-
-            if (firstViewHolder == null && mockApps.isNotEmpty()) {
-                recyclerView.scrollToPosition(0)
-                recyclerView.post {
-                    recyclerView
-                        .findViewHolderForAdapterPosition(0)
-                        ?.itemView
-                        ?.requestFocus()
-                }
-            }
-        }
-
+        refreshApps()
         handleIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::appAdapter.isInitialized) {
+            refreshApps()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -149,24 +142,62 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent?.action == ACTION_KNOB_FOUR_FINGERS) {
-            Toast.makeText(
-                this,
-                "4-Finger-Knob-Geste empfangen",
-                Toast.LENGTH_SHORT
-            ).show()
+        if (intent?.action != ACTION_KNOB_FOUR_FINGERS) {
+            return
+        }
+
+        val direction = intent.getStringExtra(EXTRA_KNOB_DIRECTION)
+            ?: return
+
+        moveSelection(direction)
+    }
+
+    private fun moveSelection(direction: String) {
+        val recyclerView = menuRecyclerView ?: return
+        val adapter = recyclerView.adapter ?: return
+        if (adapter.itemCount == 0) {
+            return
+        }
+
+        val focusedView = recyclerView.focusedChild
+        val focusedPosition = focusedView
+            ?.let { recyclerView.getChildAdapterPosition(it) }
+            ?.takeUnless { it == RecyclerView.NO_POSITION }
+            ?: 0
+
+        val offset = when (direction) {
+            DIRECTION_NEXT -> 1
+            DIRECTION_PREVIOUS -> -1
+            else -> return
+        }
+
+        val targetPosition = (focusedPosition + offset)
+            .coerceIn(0, adapter.itemCount - 1)
+
+        recyclerView.smoothScrollToPosition(targetPosition)
+
+        recyclerView.post {
+            recyclerView
+                .findViewHolderForAdapterPosition(targetPosition)
+                ?.itemView
+                ?.requestFocus()
+        }
+
+
+    }
+
+    private fun refreshApps() {
+        appAdapter.submitApps(loadLauncherApps())
+        menuRecyclerView?.post {
+            menuRecyclerView
+                ?.findViewHolderForAdapterPosition(0)
+                ?.itemView
+                ?.requestFocus()
         }
     }
 
-    private fun openMockApp(app: MockApp) {
-        val intent = Intent(this, MockAppActivity::class.java).apply {
-            putExtra(
-                MockAppActivity.EXTRA_MOCK_APP_ID,
-                app.id
-            )
-        }
-
-        startActivity(intent)
+    private fun openApp(app: LauncherApp) {
+        startActivity(app.launchIntent())
     }
 
     override fun dispatchGenericMotionEvent(
@@ -176,17 +207,6 @@ class MainActivity : ComponentActivity() {
             event.action == MotionEvent.ACTION_SCROLL &&
                     event.isFromSource(InputDevice.SOURCE_ROTARY_ENCODER)
 
-        if (isRotaryEvent) {
-            Log.d(
-                ROTARY_LOG_TAG,
-                "Rotary-Event empfangen: " +
-                        "axis=${event.getAxisValue(MotionEvent.AXIS_SCROLL)}, " +
-                        "source=${event.source}, " +
-                        "deviceId=${event.deviceId}, " +
-                        "device=${event.device?.name}"
-            )
-        }
-
         return super.dispatchGenericMotionEvent(event)
     }
 
@@ -195,17 +215,27 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        private const val ROTARY_LOG_TAG = "MenuAppRotary"
-
         private const val ACTION_KNOB_FOUR_FINGERS =
             "com.example.carappdrawer.ACTION_KNOB_FOUR_FINGERS"
+
+        private const val EXTRA_KNOB_DIRECTION =
+            "com.example.carappdrawer.EXTRA_KNOB_DIRECTION"
+
+        private const val DIRECTION_NEXT = "NEXT"
+        private const val DIRECTION_PREVIOUS = "PREV"
     }
 }
 
-private class MockAppAdapter(
-    private val apps: List<MockApp>,
-    private val onClick: (MockApp) -> Unit
-) : RecyclerView.Adapter<MockAppAdapter.ViewHolder>() {
+private class LauncherAppAdapter(
+    private val onClick: (LauncherApp) -> Unit
+) : RecyclerView.Adapter<LauncherAppAdapter.ViewHolder>() {
+
+    private var apps: List<LauncherApp> = emptyList()
+
+    fun submitApps(apps: List<LauncherApp>) {
+        this.apps = apps
+        notifyDataSetChanged()
+    }
 
     override fun onCreateViewHolder(
         parent: ViewGroup,
@@ -250,11 +280,14 @@ private class MockAppAdapter(
         private val card: LinearLayout
     ) : RecyclerView.ViewHolder(card) {
 
-        fun bind(app: MockApp) {
+        fun bind(app: LauncherApp) {
             card.removeAllViews()
+            card.background = null
+            card.scaleX = 1f
+            card.scaleY = 1f
 
             val icon = ImageView(card.context).apply {
-                setImageResource(app.iconResId)
+                setImageDrawable(app.icon)
                 contentDescription = app.label
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 layoutParams = LinearLayout.LayoutParams(
@@ -289,40 +322,19 @@ private class MockAppAdapter(
             }
 
             card.setOnFocusChangeListener { view, hasFocus ->
-                view.background = createCardBackground(
-                    focused = hasFocus
+                view.scaleX = if (hasFocus) 1.05f else 1f
+                view.scaleY = if (hasFocus) 1.05f else 1f
+                label.setTextColor(
+                    if (hasFocus) {
+                        AndroidColor.rgb(144, 202, 249)
+                    } else {
+                        AndroidColor.WHITE
+                    }
                 )
 
                 if (hasFocus) {
                     card.parent
                         ?.requestChildFocus(card, card)
-                }
-            }
-
-            card.background = createCardBackground(
-                focused = card.hasFocus()
-            )
-        }
-
-        private fun createCardBackground(
-            focused: Boolean
-        ): GradientDrawable {
-            return GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = card.context.dp(16).toFloat()
-                setColor(
-                    if (focused) {
-                        AndroidColor.rgb(51, 51, 51)
-                    } else {
-                        AndroidColor.rgb(34, 34, 34)
-                    }
-                )
-
-                if (focused) {
-                    setStroke(
-                        card.context.dp(3),
-                        AndroidColor.rgb(100, 181, 246)
-                    )
                 }
             }
         }
