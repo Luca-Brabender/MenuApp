@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -147,6 +148,28 @@ class MainActivity : ComponentActivity() {
         root.addView(focusParkingView)
         root.addView(focusArea)
 
+        val appGridButton = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_app_grid)
+            contentDescription = getString(R.string.exit_app_drawer)
+            setBackgroundColor(AndroidColor.TRANSPARENT)
+            setColorFilter(AndroidColor.WHITE)
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            layoutParams = FrameLayout.LayoutParams(
+                dp(72),
+                dp(72),
+                Gravity.TOP or Gravity.END
+            ).apply {
+                topMargin = dp(24)
+                marginEnd = dp(24)
+            }
+            setOnClickListener {
+                finishAndRemoveTask()
+            }
+        }
+
+        root.addView(appGridButton)
 
         setContentView(root)
         refreshApps()
