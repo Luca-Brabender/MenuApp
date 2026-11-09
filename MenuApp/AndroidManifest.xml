@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.menuapp">
+
+    <!-- Erlaubt dem PackageManager, alle installierten Apps abzufragen -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <queries>
+        <package android:name="com.android.car.media" />
+
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.CAR_LAUNCHER" />
+        </intent>
+
+        <intent>
+            <action android:name="android.media.browse.MediaBrowserService" />
+        </intent>
+
+        <intent>
+            <action android:name="android.media.browse.MediaBrowserServiceCompat" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_MUSIC" />
+        </intent>
+
+        <intent>
+            <action android:name="android.intent.action.MUSIC_PLAYER" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MenuApp">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.CAR_LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.example.carappdrawer.ACTION_KNOB_FOUR_FINGERS" />
+                <action android:name="com.example.carappdrawer.ACTION_KNOB_TOUCH_DOWN" />
+                <action android:name="com.example.carappdrawer.ACTION_KNOB_TOUCH_UP" />
+                <action android:name="com.example.carappdrawer.ACTION_KNOB_SELECT" />
+                <action android:name="com.example.carappdrawer.ACTION_KNOB_CLOSE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".AppOrderResetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.example.menuapp.RESET_APP_ORDER" />
+                <action android:name="com.example.knobservice.SET_STANDARD_ROTARY" />
+                <action android:name="com.example.knobservice.SET_MODE" />
+                <action android:name="com.example.knobservice.SET_ROTARY_MODE" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

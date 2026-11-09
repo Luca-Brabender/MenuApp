@@ -1,0 +1,17 @@
+android_app {
+    name: "MenuApp",
+    srcs: ["src/**/*.kt"],
+    resource_dirs: ["res"],
+    manifest: "AndroidManifest.xml",
+    platform_apis: true,
+    privileged: true,
+    certificate: "platform",
+    libs: ["android.car"],
+    static_libs: [
+        "car-ui-lib",
+        "androidx.recyclerview_recyclerview",
+        "androidx.activity_activity",
+        "androidx.core_core",
+    ],
+}
+
